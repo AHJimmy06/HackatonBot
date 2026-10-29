@@ -28,7 +28,7 @@ class Fixture(BaseHTTPRequestHandler):
             "/api/conversations": [CHAT],
             "/api/conversations/1": {**CHAT, "messages": MESSAGES},
             "/api/metrics": {"conversations": 1, "with_ai": 1, "with_human": 0, "moods": {}, "courses": 0},
-            "/api/health": {"telegram": False, "telegram_status": "disabled", "llm": False, "protected": True},
+            "/api/health": {"telegram": True, "telegram_status": "connected", "llm": True, "protected": True, "model": "Fixture local sin llamadas externas"},
             "/api/catalog": [],
         }
         assets = {"/": "index.html", "/static/styles.css": "styles.css", "/static/app.js": "app.js"}

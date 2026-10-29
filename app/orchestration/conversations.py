@@ -48,6 +48,7 @@ async def _handle_incoming(
         return conversation
 
     epoch = _epochs[conversation["id"]]
+    requested_human = False
     folded = text.lower().strip()
     if folded in {"/start", "/help"}:
         result = {
@@ -100,6 +101,7 @@ async def _handle_incoming(
             courses = conversation.get("courses") or []
         elif (precheck := guard.classify(text)):
             result = precheck
+            requested_human = precheck.get("kind") == "humano"
             courses = conversation.get("courses") or []
         else:
             if deliver and origin == "telegram":
@@ -117,7 +119,9 @@ async def _handle_incoming(
         if _epochs[conversation["id"]] != epoch or db.get_conversation(conversation["id"])["mode"] != "ai":
             return db.get_conversation(conversation["id"])
         reply = result["reply"]
-        handover = bool(result.get("handover"))
+        # Defense in depth: arbitrary LLM output cannot pause a live conversation.
+        # Operator takeover is handled independently by the epoch/mode checks above.
+        handover = requested_human
         profile = result.get("profile") or conversation.get("profile") or {}
         db.add_message(conversation["id"], "assistant", reply)
         updated = db.update_conversation(

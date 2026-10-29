@@ -29,12 +29,27 @@ FREEBIE_RE = re.compile(
 )
 
 HUMAN_RE = re.compile(
-    r"(hablar|comunicarme|pasame|quiero|necesito|ponme).{0,40}"
-    r"(persona|humano|asesor|operador|alguien del centro)|"
-    r"(asesor|operador) humano|"
-    r"atencion humana",
+    r"\b(?:hablar|conversar|comunicarme|contactar)\s+(?:directamente\s+)?(?:con|a)\s+"
+    r"(?:(?:un|una|el|la|algun|alguna)\s+)?(?:asesor(?:a)?|operador(?:a)?|humano|persona|alguien del centro)\b|"
+    r"\b(?:pasame|comunicame|conectame|derivame|ponme)\s+(?:(?:con|a)\s+)?"
+    r"(?:(?:un|una|el|la)\s+)?(?:asesor(?:a)?|operador(?:a)?|humano|persona|alguien del centro)\b|"
+    r"\b(?:quiero|quisiera|necesito|prefiero|deseo|solicito)\s+(?:atencion humana|"
+    r"(?:un|una|el|la)\s+(?:asesor(?:a)?|operador(?:a)?|humano|persona))\b|"
+    r"^\s*(?:(?:asesor|operador) humano|atencion humana)\s*[.!?]*$",
     re.I,
 )
+
+
+def requests_human(text: str) -> bool:
+    """Only explicit current-message requests authorize an automatic handover."""
+    # Negations apply within a clause, not to a later affirmative request.
+    for clause in re.split(r"[.!?;,\n]|\bpero\b", fold(text)):
+        if not HUMAN_RE.search(clause):
+            continue
+        if re.search(r"\b(?:no|nunca|tampoco)\b", clause):
+            continue
+        return True
+    return False
 
 SAFE_PRICE = (
     "El CTT no tiene cursos gratis ni descuentos fuera de la tarifa publicada. "
@@ -75,7 +90,7 @@ def classify(text: str) -> dict | None:
             "intent": "objecion",
             "summary": "Pidió un precio o beneficio que el centro no autoriza.",
         }
-    if HUMAN_RE.search(folded):
+    if requests_human(text):
         return {
             "kind": "humano",
             "reply": HUMAN_REPLY,

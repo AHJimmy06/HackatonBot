@@ -6,6 +6,7 @@ from openai import AsyncOpenAI
 
 from app.catalog import retrieval
 from app.config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
+from app.inference.guard import requests_human
 from app.inference.coherence import official_signup, plausible_name, polish
 from app.inference.context import OUTPUT_TOKENS, build_messages
 
@@ -65,12 +66,10 @@ def _fallback(text: str, courses: list[dict], weak: bool, profile: dict) -> dict
     mood = "interesado"
     summary = f"Interés cercano a {course['title']}."
     if wants_in:
-        handover = course.get("computed_status") == "inscripcion_abierta"
-        intent = "inscripcion" if handover else "info"
-        mood = "caliente" if handover else "dudoso"
+        enrollment_open = course.get("computed_status") == "inscripcion_abierta"
+        intent = "inscripcion" if enrollment_open else "info"
+        mood = "caliente" if enrollment_open else "dudoso"
         reply = official_signup([course])
-        if handover:
-            reply += " Un asesor del CTT puede orientarte en este mismo chat."
         summary = f"Quiere inscribirse en {course['title']}."
     return {
         "reply": reply,
@@ -84,7 +83,7 @@ def _fallback(text: str, courses: list[dict], weak: bool, profile: dict) -> dict
     }
 
 
-def _normalize(data: dict, profile: dict, courses: list[dict]) -> dict:
+def _normalize(data: dict, profile: dict, courses: list[dict], *, user_text: str = "") -> dict:
     mood = str(data.get("mood") or "").strip().lower()
     if mood not in MOODS:
         mood = "interesado"
@@ -92,7 +91,10 @@ def _normalize(data: dict, profile: dict, courses: list[dict]) -> dict:
     if intent not in INTENTS:
         intent = "otro"
     reply = str(data.get("reply") or "").strip()
-    handover = data.get("should_handover") is True or mood == "frustrado" or intent == "humano"
+    # Model sentiment/classification is advisory; it cannot stop the conversation.
+    handover = requests_human(user_text)
+    if intent == "humano" and not handover:
+        intent = "otro"
     if not reply:
         reply = "Cuéntame un poco más de lo que quieres aprender y te indico el curso del CTT que te sirve."
     if handover and "asesor" not in reply.lower() and "este mismo chat" not in reply.lower():
@@ -108,7 +110,7 @@ def _normalize(data: dict, profile: dict, courses: list[dict]) -> dict:
         "mood": mood,
         "intent": intent,
         "handover": handover,
-        "handover_reason": str(data.get("handover_reason") or "").strip()[:240],
+        "handover_reason": "Pidió hablar con un asesor." if handover else "",
         "summary": str(data.get("summary") or "").strip()[:240] or "Conversación en curso.",
         "profile": _merge_profile(profile, data.get("profile") if isinstance(data.get("profile"), dict) else {}),
         "flag": intent == "inyeccion",
@@ -167,7 +169,7 @@ async def answer(conversation: dict, text: str, history: list[dict]) -> tuple[di
         )
         try:
             data = _parse_json(await _complete(messages))
-            result = _normalize(data, profile, courses)
+            result = _normalize(data, profile, courses, user_text=text)
         except Exception:
             log.exception("Fallo de inferencia")
             result = _fallback(text, courses, weak, profile)
@@ -177,7 +179,7 @@ async def answer(conversation: dict, text: str, history: list[dict]) -> tuple[di
     result["reply"] = reply
     if changed:
         # A corrected model reply must not cancel an explicit request for a human.
-        if result["intent"] == "humano" or result["mood"] == "frustrado":
+        if requests_human(text):
             result["handover"] = True
             result["reply"] += " Un asesor del CTT te atiende en este mismo chat."
         else:
