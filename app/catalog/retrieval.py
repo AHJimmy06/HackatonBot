@@ -63,6 +63,8 @@ def _words(text: str) -> list[str]:
 
 
 def search(query: str, limit: int = 3) -> tuple[list[dict], bool]:
+    if limit < 1:
+        return [], True
     courses = list_courses()
     words = _words(query)
     ranked = []
@@ -88,6 +90,17 @@ def search(query: str, limit: int = 3) -> tuple[list[dict], bool]:
     matched = [item for item in ranked if item["_score"] >= 5]
     weak = not matched
     chosen = (matched or ranked)[:limit]
+    open_status = {"inscripcion_abierta", "por_abrir"}
+    if not any(item.get("computed_status") in open_status for item in chosen):
+        seen = {item["slug"] for item in chosen}
+        for item in ranked:
+            if item.get("computed_status") in open_status and item["slug"] not in seen:
+                if len(chosen) < limit:
+                    chosen.append(item)
+                elif limit > 1:
+                    # Keep the strongest match and a current alternative within the context budget.
+                    chosen[-1] = item
+                break
     for item in chosen:
         item.pop("_score", None)
     return chosen, weak
@@ -111,6 +124,10 @@ def brief(course: dict) -> str:
         course.get("modality") or "",
     ]
     line = " | ".join(bit for bit in bits if bit)
+    if course.get("computed_status") in {"finalizado", "inscripcion_cerrada", "en_curso"}:
+        line += "\nNo ofrecer inscripción. Di que esta edición ya cerró y usa la opción vigente del contexto."
+    elif course.get("computed_status") == "por_abrir":
+        line += "\nLa inscripción todavía no abre. Puedes anotar el interés, no digas que ya quedó inscrito."
     price = (
         f"Precios oficiales: estudiante UTA {money(prices.get('estudiante_uta'))}, "
         f"graduados/docentes/administrativos UTA {money(prices.get('uta'))}, "

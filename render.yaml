@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: ctt-asesor
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: LLM_BASE_URL
+        value: https://api.groq.com/openai/v1
+      - key: LLM_API_KEY
+        sync: false
+      - key: LLM_MODEL
+        value: openai/gpt-oss-120b
+      - key: CATALOG_URL
+        value: https://ctt-talleresfisei.uta.edu.ec/course.php
+      - key: PYTHON_VERSION
+        value: 3.13.0

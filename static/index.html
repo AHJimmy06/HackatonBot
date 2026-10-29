@@ -25,9 +25,8 @@
  <section id="catalog-view" class="view" hidden><div class="catalog-toolbar"><div><h2>Conocimiento conectado a la fuente</h2><p id="catalog-sync">Información extraída del sitio oficial de CTT-FISEI.</p></div><button class="secondary" id="refresh-catalog">↻ Sincronizar catálogo</button></div><div class="catalog-disclaimer">Las fechas y cupos deben confirmarse con el centro. “Abierto” en el listado no garantiza que las inscripciones sigan vigentes.</div><div id="course-grid" class="course-grid"></div></section>
  <section id="settings-view" class="view" hidden><div class="settings-grid" id="settings-grid"></div><div class="config-help"><h2>Un solo lugar para conectar tu bot</h2><p>Configura las variables en <code>.env</code> y reinicia el servidor. Las claves nunca se muestran ni se guardan en el navegador.</p><pre>TELEGRAM_BOT_TOKEN=token_de_BotFather
 LLM_API_KEY=clave_de_tu_proveedor
-LLM_BASE_URL=https://api.openai.com/v1
-LLM_MODEL=modelo_disponible_en_tu_cuenta
-DASHBOARD_PASSWORD=contraseña_para_acceso_remoto</pre><p>La versión base responde a notas de voz solicitando texto; la transcripción requiere integración adicional. Publica una única instancia del servidor con disco persistente.</p></div></section>
+LLM_BASE_URL=url_compatible_de_tu_proveedor
+LLM_MODEL=modelo_disponible_en_tu_cuenta</pre><p>Conserva las variables existentes. El acceso al panel usa el usuario <code>admin</code> y el archivo local <code>.dashboard-password</code>, no una variable adicional.</p><p>La versión base responde a notas de voz solicitando texto; la transcripción requiere integración adicional. Publica una única instancia del servidor con disco persistente.</p></div></section>
  <footer class="page-footer"><span>CTT Connect <span class="footer-dot">·</span> Tecnología que acompaña.</span><span>HACKATHON 2026 · FISEI</span></footer>
 </main><div id="toast" class="toast" role="status" hidden></div><script src="/static/app.js" defer></script>
 </body></html>

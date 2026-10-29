@@ -83,7 +83,7 @@ async def protect_dashboard(request: Request, call_next):
         if not valid:
             return JSONResponse({"detail":"Autenticación requerida"},status_code=401,headers={"WWW-Authenticate":'Basic realm="CTT Connect"'})
     elif request.client.host not in {"127.0.0.1", "::1", "testclient"}:
-        return JSONResponse({"detail":"Configura DASHBOARD_PASSWORD"},status_code=403)
+        return JSONResponse({"detail":"Configura el archivo .dashboard-password"},status_code=403)
     if request.method not in {"GET","HEAD","OPTIONS"}:
         from urllib.parse import urlparse
         origin=request.headers.get("origin")

@@ -6,6 +6,7 @@ from openai import AsyncOpenAI
 
 from app.catalog import retrieval
 from app.config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
+from app.inference.coherence import official_signup, plausible_name, polish
 from app.inference.context import OUTPUT_TOKENS, build_messages
 
 log = logging.getLogger(__name__)
@@ -21,6 +22,8 @@ def _merge_profile(old: dict, new: dict) -> dict:
         if not value or value.lower() in {"null", "none", "desconocido"}:
             continue
         if key == "perfil" and value not in PROFILES:
+            continue
+        if key == "nombre" and not plausible_name(value):
             continue
         merged[key] = value
     merged.setdefault("perfil", "desconocido")
@@ -62,13 +65,12 @@ def _fallback(text: str, courses: list[dict], weak: bool, profile: dict) -> dict
     mood = "interesado"
     summary = f"Interés cercano a {course['title']}."
     if wants_in:
-        handover = True
-        intent = "inscripcion"
-        mood = "caliente"
-        reply = (
-            f"Listo. Para {course['title']} un asesor del CTT confirma el cupo en este mismo chat. "
-            "Dime tu nombre y si eres estudiante UTA, graduado o personal de la UTA, o público en general."
-        )
+        handover = course.get("computed_status") == "inscripcion_abierta"
+        intent = "inscripcion" if handover else "info"
+        mood = "caliente" if handover else "dudoso"
+        reply = official_signup([course])
+        if handover:
+            reply += " Un asesor del CTT puede orientarte en este mismo chat."
         summary = f"Quiere inscribirse en {course['title']}."
     return {
         "reply": reply,
@@ -90,7 +92,7 @@ def _normalize(data: dict, profile: dict, courses: list[dict]) -> dict:
     if intent not in INTENTS:
         intent = "otro"
     reply = str(data.get("reply") or "").strip()
-    handover = bool(data.get("should_handover")) or mood == "frustrado" or intent == "humano"
+    handover = data.get("should_handover") is True or mood == "frustrado" or intent == "humano"
     if not reply:
         reply = "Cuéntame un poco más de lo que quieres aprender y te indico el curso del CTT que te sirve."
     if handover and "asesor" not in reply.lower() and "este mismo chat" not in reply.lower():
@@ -157,23 +159,32 @@ async def answer(conversation: dict, text: str, history: list[dict]) -> tuple[di
     )
     courses, weak = retrieval.search(query)
     if not LLM_API_KEY:
-        return _fallback(text, courses, weak, profile), _slim(courses if not weak else [])
-    messages = build_messages(
-        conversation,
-        text,
-        history,
-        [retrieval.brief(course) for course in courses],
-        weak,
-    )
-    try:
-        data = _parse_json(await _complete(messages))
-        result = _normalize(data, profile, courses)
-    except Exception:
-        log.exception("Fallo de inferencia")
         result = _fallback(text, courses, weak, profile)
-        return result, _slim(courses if not weak else [])
-    chosen_ids = set(result.pop("course_ids"))
+    else:
+        messages = build_messages(
+            conversation, text, history,
+            [retrieval.brief(course) for course in courses], weak,
+        )
+        try:
+            data = _parse_json(await _complete(messages))
+            result = _normalize(data, profile, courses)
+        except Exception:
+            log.exception("Fallo de inferencia")
+            result = _fallback(text, courses, weak, profile)
+    chosen_ids = set(result.pop("course_ids", []))
     chosen = [course for course in courses if course["slug"] in chosen_ids] or (courses if not weak else [])
+    reply, changed = polish(result["reply"], text, chosen, result["profile"])
+    result["reply"] = reply
+    if changed:
+        # A corrected model reply must not cancel an explicit request for a human.
+        if result["intent"] == "humano" or result["mood"] == "frustrado":
+            result["handover"] = True
+            result["reply"] += " Un asesor del CTT te atiende en este mismo chat."
+        else:
+            result["handover"] = False
+            result["handover_reason"] = ""
+            result["mood"] = "dudoso"
+            result["intent"] = "info"
     return result, _slim(chosen)
 
 
