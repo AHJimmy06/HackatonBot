@@ -34,3 +34,21 @@ Abre http://localhost:8000. Sin token de Telegram puedes usar **Simular prospect
 ## Qué muestra el panel
 
 Conversaciones en vivo, termómetro (interesado, dudoso, frustrado, lead caliente), resumen, perfil y cursos considerados. **Enviar y tomar control** pausa la IA y manda el texto por el mismo bot. **Devolver a la IA** reanuda la inferencia.
+
+## Despliegue
+
+Tiene que haber **un solo proceso** con el token de Telegram. Si el servidor local y el de la nube corren juntos, Telegram corta la conexión.
+
+Para la defensa de hoy, la vía más rápida es un túnel desde esta computadora:
+
+1. Deja corriendo `uvicorn app.main:app --host 0.0.0.0 --port 8000`.
+2. En otra terminal: `cloudflared tunnel --url http://localhost:8000`.
+3. La URL `https://....trycloudflare.com` es la que abre el jurado. El bot sigue escuchando en esta máquina.
+
+Para dejarlo publicado en [Render](https://render.com):
+
+1. Sube el repositorio a GitHub. No subas el archivo `.env`.
+2. New → Blueprint, o New → Web Service apuntando al repo. El archivo `render.yaml` ya trae el comando de arranque.
+3. En Environment pega `TELEGRAM_BOT_TOKEN` y `LLM_API_KEY`.
+4. Apaga el servidor local antes de que el de Render termine de arrancar.
+5. La URL de Render es el panel. El bot sale del mismo servicio.

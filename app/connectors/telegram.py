@@ -89,6 +89,8 @@ async def _on_update(update: dict) -> None:
     username = user.get("username") or ""
     if message.get("voice") or message.get("audio"):
         text = "[Envió una nota de voz]"
+    elif message.get("document") or message.get("photo"):
+        text = "[Envió un archivo]"
     else:
         text = (message.get("text") or message.get("caption") or "").strip()
     if not text:

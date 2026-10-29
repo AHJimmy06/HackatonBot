@@ -6,6 +6,7 @@ from openai import AsyncOpenAI
 
 from app.catalog import retrieval
 from app.config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
+from app.inference.coherence import plausible_name, polish
 from app.inference.context import OUTPUT_TOKENS, build_messages
 
 log = logging.getLogger(__name__)
@@ -21,6 +22,8 @@ def _merge_profile(old: dict, new: dict) -> dict:
         if not value or value.lower() in {"null", "none", "desconocido"}:
             continue
         if key == "perfil" and value not in PROFILES:
+            continue
+        if key == "nombre" and not plausible_name(value):
             continue
         merged[key] = value
     merged.setdefault("perfil", "desconocido")
@@ -174,6 +177,12 @@ async def answer(conversation: dict, text: str, history: list[dict]) -> tuple[di
         return result, _slim(courses if not weak else [])
     chosen_ids = set(result.pop("course_ids"))
     chosen = [course for course in courses if course["slug"] in chosen_ids] or (courses if not weak else [])
+    reply, changed = polish(result["reply"], text, chosen, result["profile"])
+    result["reply"] = reply
+    if changed:
+        result["handover"] = False
+        result["mood"] = "dudoso"
+        result["intent"] = "info"
     return result, _slim(chosen)
 
 

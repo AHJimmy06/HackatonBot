@@ -24,21 +24,26 @@ function when(iso) {
   return date.toLocaleString("es-EC", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "short" });
 }
 
+let loadSeq = 0;
 async function load() {
+  const seq = ++loadSeq;
   const [conversations, metrics, catalog, health] = await Promise.all([
     fetch("/api/conversations").then((r) => r.json()),
     fetch("/api/metrics").then((r) => r.json()),
     fetch("/api/catalog").then((r) => r.json()),
     fetch("/api/health").then((r) => r.json()),
   ]);
+  if (seq !== loadSeq) return;
   state.conversations = conversations;
   state.metrics = metrics;
   state.catalog = catalog;
   state.health = health;
   if (state.selectedId) {
     const detail = await fetch(`/api/conversations/${state.selectedId}`);
+    if (seq !== loadSeq) return;
     state.messages = detail.ok ? (await detail.json()).messages : [];
   }
+  if (seq !== loadSeq) return;
   render();
 }
 
@@ -57,7 +62,7 @@ function render() {
     ["Calientes", moods.caliente || 0],
     ["Frustrados", moods.frustrado || 0],
     ["Alertas", m.flagged || 0],
-  ].map(([label, value]) => `<span class="chip">${label} ${value}</span>`).join("");
+  ].map(([label, value]) => `<span class="chip"><b>${value}</b><span>${label}</span></span>`).join("");
 
   const refreshing = m.catalog_refreshing;
   $("catalogMeta").textContent = refreshing
@@ -229,7 +234,11 @@ $("refreshCatalog").addEventListener("click", async () => {
 });
 
 const source = new EventSource("/api/events");
-source.onopen = () => { $("live").textContent = "en vivo"; $("live").classList.remove("off"); };
+source.onopen = () => {
+  $("live").textContent = "en vivo";
+  $("live").classList.remove("off");
+  load().catch(console.error);
+};
 source.onerror = () => { $("live").textContent = "reconectando"; $("live").classList.add("off"); };
 source.onmessage = schedule;
 

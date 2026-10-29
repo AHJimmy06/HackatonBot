@@ -3,12 +3,14 @@ import logging
 
 from app.connectors.telegram import send_message, typing
 from app.inference import guard
+from app.inference.coherence import clarify, looks_incoherent, official_signup
 from app.inference.pipeline import answer
 from app.persistence import database as db
 from app.realtime.hub import broadcast
 
 log = logging.getLogger(__name__)
 
+FILE_NOTE = "[Envió un archivo]"
 VOICE_REPLY = (
     "Si me lo escribes lo leo enseguida. Cuéntame qué quieres aprender y si eres estudiante de la UTA."
 )
@@ -51,6 +53,18 @@ async def handle_incoming(
             "flag": False,
         }
         courses = []
+    elif text == FILE_NOTE:
+        result = {
+            "reply": official_signup(conversation.get("courses") or []),
+            "mood": "interesado",
+            "intent": "inscripcion",
+            "handover": False,
+            "handover_reason": "",
+            "summary": "Envió un archivo. Se le indicó el formulario oficial.",
+            "profile": conversation.get("profile") or {},
+            "flag": False,
+        }
+        courses = conversation.get("courses") or []
     elif text == "[Envió una nota de voz]":
         result = {
             "reply": VOICE_REPLY,
@@ -64,8 +78,19 @@ async def handle_incoming(
         }
         courses = []
     else:
-        precheck = guard.classify(text)
-        if precheck:
+        if looks_incoherent(text):
+            result = {
+                "reply": clarify(conversation),
+                "mood": "dudoso",
+                "intent": "info",
+                "handover": False,
+                "handover_reason": "",
+                "summary": "Envió un mensaje confuso. Se le pidió repetirlo en español.",
+                "profile": conversation.get("profile") or {},
+                "flag": False,
+            }
+            courses = conversation.get("courses") or []
+        elif (precheck := guard.classify(text)):
             result = precheck
             courses = conversation.get("courses") or []
         else:
