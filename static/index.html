@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Panel de mando · CTT-FISEI</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,560&family=Outfit:wght@380;500;640&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <span class="mark">CTT</span>
+      <div>
+        <strong>Asesor CTT-FISEI</strong>
+        <small>Panel de mando</small>
+      </div>
+    </div>
+    <div class="metrics" id="metrics"></div>
+    <div class="live-box">
+      <span class="live" id="live">en vivo</span>
+      <span id="catalogMeta"></span>
+      <button type="button" id="refreshCatalog">Actualizar pénsum</button>
+    </div>
+  </header>
+  <p class="banner" id="banner" hidden></p>
+  <div class="layout">
+    <aside>
+      <div class="switch">
+        <button type="button" class="on" data-view="chats">Conversaciones</button>
+        <button type="button" data-view="catalog">Pénsum</button>
+      </div>
+      <div id="list"></div>
+      <form id="sim" class="sim">
+        <p>Simular prospecto</p>
+        <input id="simName" value="Ana Pérez" maxlength="80">
+        <textarea id="simText" rows="3" placeholder="Quiero aprender inteligencia artificial y no sé programar"></textarea>
+        <button type="submit">Enviar al asesor</button>
+      </form>
+    </aside>
+    <main>
+      <div id="head" class="head empty">Elige una conversación</div>
+      <div id="thread" class="thread"></div>
+      <form id="composer" class="composer">
+        <textarea id="draft" rows="2" placeholder="Escribe como asesor. Al enviar, la IA se pausa." disabled></textarea>
+        <div class="actions">
+          <button type="submit" id="sendBtn" disabled>Enviar y tomar control</button>
+          <button type="button" id="resumeBtn" disabled>Devolver a la IA</button>
+        </div>
+      </form>
+    </main>
+    <section id="side" class="side"></section>
+  </div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
