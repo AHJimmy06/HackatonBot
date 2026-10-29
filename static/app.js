@@ -1,236 +1,64 @@
-const state = {
-  view: "chats",
-  conversations: [],
-  catalog: [],
-  selectedId: null,
-  selectedSlug: null,
-  messages: [],
-  metrics: {},
-  health: {},
-};
-
-const $ = (id) => document.getElementById(id);
-const simId = Number(localStorage.simId || (1_000_000_000_000 + Math.floor(Math.random() * 100000)));
-localStorage.simId = String(simId);
-
-function moodLabel(mood) {
-  return { interesado: "Interesado", dudoso: "Dudoso", frustrado: "Frustrado", caliente: "Lead caliente" }[mood] || "Interesado";
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let state={chats:[],metrics:{}}, selected=null, detail=null, filter='all', asUser=true, health={}, currentView='inbox', loading=false, refreshAgain=false;
+const labels={'interesado':'Interesado','dudoso':'Dudoso','frustrado':'Necesita atención','lead caliente':'Lead caliente'};
+const badge=s=>`<span class="badge ${s==='lead caliente'?'hot':esc(s)}">${esc(labels[s]||s)}</span>`;
+const time=t=>t?new Date(t).toLocaleTimeString('es-EC',{hour:'2-digit',minute:'2-digit',timeZone:'America/Guayaquil'}):'';
+function toast(message){$('toast').textContent=message;$('toast').hidden=false;clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('toast').hidden=true,4500)}
+// Adapter keeps the visual UI independent of the branch's existing API contract.
+function normalizeChat(c){return {...c,id:String(c.id),name:c.user_name||'Prospecto',channel:c.origin==='panel'?'demo':'telegram',status:c.mood==='caliente'?'lead caliente':c.mood,profile:JSON.stringify(c.profile||{})}}
+async function requestJSON(path,options={}){const r=await fetch(path,{...options,headers:{'Content-Type':'application/json',...options.headers}});if(!r.ok){const d=await r.json().catch(()=>({}));throw Error(typeof d.detail==='string'?d.detail:'No se pudo completar la operación')}return r.json()}
+async function api(path,options={}){
+ if(path==='/api/state'){
+  const [chats,m]=await Promise.all([requestJSON('/api/conversations'),requestJSON('/api/metrics')]);
+  return {chats:chats.map(normalizeChat),metrics:{total:m.conversations||0,ai:m.with_ai||0,human:m.with_human||0,hot:m.moods?.caliente||0},catalog_count:m.courses,catalog_updated:m.catalog_updated_at,catalog_warning:m.catalog_error,catalog_refreshing:m.catalog_refreshing};
+ }
+ if(path==='/api/health'){
+  const h=await requestJSON(path,options);
+  return {...h,telegram:typeof h.telegram==='boolean'?(h.telegram?'configured':'unconfigured'):h.telegram,llm:typeof h.llm==='boolean'?(h.llm?'configured':'unconfigured'):h.llm};
+ }
+ if(path==='/api/courses')return (await requestJSON('/api/catalog')).map(c=>({...c,hours:c.hours?`${c.hours} horas`:'Por confirmar',prices:Object.entries(c.prices||{}).map(([k,v])=>`${({estudiante_uta:'Estudiante UTA',uta:'Personal UTA',publico:'Público'})[k]||k}: ${v==null?'no publicado':`$${v}`}`),content:[c.status_label,c.description,c.schedule,c.modality,c.note,c.contents].filter(Boolean).join('\n\n')}));
+ if(path==='/api/demo'){
+  const c=await requestJSON('/api/simulate',{method:'POST',body:JSON.stringify({telegram_chat_id:-(Date.now()*100+Math.floor(Math.random()*100)),name:'Prospecto de prueba',username:'',text:'/start'})});
+  return {id:String(c.id)};
+ }
+ if(path.startsWith('/api/demo/')){
+  const c=await requestJSON('/api/conversations/'+encodeURIComponent(path.split('/').at(-1)));
+  if(c.origin!=='panel')throw Error('Solo se pueden simular conversaciones de prueba');
+  const body=JSON.parse(options.body||'{}');
+  return requestJSON('/api/simulate',{...options,body:JSON.stringify({telegram_chat_id:c.telegram_chat_id,name:c.user_name,username:c.username||'',text:body.text})});
+ }
+ if(path.startsWith('/api/chats/')){
+  const mapped=path.replace('/api/chats/','/api/conversations/');
+  const result=await requestJSON(mapped,options);
+  if(!options.method||options.method==='GET')return {chat:normalizeChat(result),messages:(result.messages||[]).map(m=>({...m,delivery:m.delivery||(result.origin==='panel'?'demo':'recorded')}))};
+  if(result.delivered===false&&result.conversation?.origin==='telegram')toast('Telegram no confirmó la entrega. Revisa la conexión antes de reenviar.');
+  return result;
+ }
+ return requestJSON(path,options);
 }
-
-function when(iso) {
-  if (!iso) return "";
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return iso.replace("T", " ").slice(0, 16);
-  return date.toLocaleString("es-EC", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "short" });
-}
-
-async function load() {
-  const [conversations, metrics, catalog, health] = await Promise.all([
-    fetch("/api/conversations").then((r) => r.json()),
-    fetch("/api/metrics").then((r) => r.json()),
-    fetch("/api/catalog").then((r) => r.json()),
-    fetch("/api/health").then((r) => r.json()),
-  ]);
-  state.conversations = conversations;
-  state.metrics = metrics;
-  state.catalog = catalog;
-  state.health = health;
-  if (state.selectedId) {
-    const detail = await fetch(`/api/conversations/${state.selectedId}`);
-    state.messages = detail.ok ? (await detail.json()).messages : [];
-  }
-  render();
-}
-
-let timer;
-function schedule() {
-  clearTimeout(timer);
-  timer = setTimeout(() => load().catch(console.error), 80);
-}
-
-function render() {
-  const m = state.metrics;
-  const moods = m.moods || {};
-  $("metrics").innerHTML = [
-    ["Activas", m.conversations || 0],
-    ["Con asesor", m.with_human || 0],
-    ["Calientes", moods.caliente || 0],
-    ["Frustrados", moods.frustrado || 0],
-    ["Alertas", m.flagged || 0],
-  ].map(([label, value]) => `<span class="chip">${label} ${value}</span>`).join("");
-
-  const refreshing = m.catalog_refreshing;
-  $("catalogMeta").textContent = refreshing
-    ? "Leyendo el sitio…"
-    : `${m.courses || 0} cursos${m.catalog_updated_at ? ` · ${when(m.catalog_updated_at)}` : ""}`;
-  $("refreshCatalog").disabled = Boolean(refreshing);
-
-  const notes = [];
-  if (!state.health.llm) notes.push("Falta LLM_API_KEY en .env. Mientras tanto la respuesta sale de la ficha del curso.");
-  if (!state.health.telegram) notes.push("Falta TELEGRAM_BOT_TOKEN. Puedes probar con Simular prospecto.");
-  if (m.catalog_error) notes.push(m.catalog_error);
-  $("banner").hidden = notes.length === 0;
-  $("banner").textContent = notes.join(" ");
-
-  $("list").innerHTML = state.view === "chats" ? renderChats() : renderCatalog();
-  renderMain();
-}
-
-function renderChats() {
-  if (!state.conversations.length) return `<p class="muted">Aún no hay conversaciones.</p>`;
-  return state.conversations.map((chat) => `
-    <button class="card ${chat.mood} ${chat.id === state.selectedId ? "on" : ""}" data-id="${chat.id}">
-      <div class="row"><b>${escapeHtml(chat.user_name || "Prospecto")}</b><span class="pill ${chat.mood}">${moodLabel(chat.mood)}</span></div>
-      <small>${chat.mode === "human" ? "Asesor" : "IA"} · ${when(chat.updated_at)}</small>
-      <div>${escapeHtml(chat.last_message || "")}</div>
-      ${chat.flagged ? `<div class="flag">Intento de alterar reglas o precio</div>` : ""}
-    </button>`).join("");
-}
-
-function renderCatalog() {
-  if (!state.catalog.length) return `<p class="muted">El pénsum todavía se está leyendo.</p>`;
-  return state.catalog.map((course) => `
-    <button class="course ${course.slug === state.selectedSlug ? "on" : ""}" data-slug="${course.slug}">
-      <b>${escapeHtml(course.title)}</b>
-      <small>${escapeHtml(course.status_label || "")}${course.hours ? ` · ${course.hours} h` : ""}</small>
-    </button>`).join("");
-}
-
-function renderMain() {
-  if (state.view === "catalog") {
-    const course = state.catalog.find((item) => item.slug === state.selectedSlug);
-    $("head").className = "head";
-    $("head").textContent = course ? course.title : "Elige un curso del pénsum";
-    $("thread").innerHTML = course ? courseSheet(course) : "";
-    $("draft").disabled = true;
-    $("sendBtn").disabled = true;
-    $("resumeBtn").disabled = true;
-    $("side").innerHTML = "";
-    return;
-  }
-  const chat = state.conversations.find((item) => item.id === state.selectedId);
-  const ready = Boolean(chat);
-  $("draft").disabled = !ready;
-  $("sendBtn").disabled = !ready;
-  $("resumeBtn").disabled = !ready || chat.mode === "ai";
-  if (!chat) {
-    $("head").className = "head empty";
-    $("head").textContent = "Elige una conversación";
-    $("thread").innerHTML = "";
-    $("side").innerHTML = "";
-    return;
-  }
-  $("head").className = "head";
-  $("head").innerHTML = `<b>${escapeHtml(chat.user_name)}</b> <span class="pill ${chat.mood}">${moodLabel(chat.mood)}</span> <small>${chat.mode === "human" ? "IA en pausa" : "IA activa"}</small>`;
-  $("thread").innerHTML = state.messages.map((message) => `
-    <div class="bubble ${message.role}">
-      <span>${message.role === "operator" ? "Asesor" : message.role === "assistant" ? "IA" : "Prospecto"} · ${when(message.created_at)}</span>
-      ${escapeHtml(message.content)}
-    </div>`).join("");
-  $("thread").scrollTop = $("thread").scrollHeight;
-  const profile = chat.profile || {};
-  const courses = chat.courses || [];
-  $("side").innerHTML = `
-    <article><h3>Resumen</h3><p>${escapeHtml(chat.summary || "Todavía no hay resumen.")}</p></article>
-    <article><h3>Perfil</h3>
-      <div class="fact">Perfil: ${escapeHtml(profile.perfil || "desconocido")}</div>
-      <div class="fact">Interés: ${escapeHtml(profile.interes || "—")}</div>
-      <div class="fact">Objetivo: ${escapeHtml(profile.objetivo || "—")}</div>
-    </article>
-    <article><h3>Cursos en juego</h3>
-      ${courses.length ? courses.map((course) => `<div class="fact"><b>${escapeHtml(course.title)}</b><br><small>${escapeHtml(course.status_label || "")}</small></div>`).join("") : `<p class="muted">Aún no se recomienda uno.</p>`}
-    </article>
-    ${chat.handover_reason ? `<article><h3>Pausa</h3><p>${escapeHtml(chat.handover_reason)}</p></article>` : ""}
-  `;
-}
-
-function courseSheet(course) {
-  const prices = course.prices || {};
-  const money = (value) => (value == null ? "no publicado" : `$${Number(value)}`);
-  return `
-    <article class="fact"><b>${escapeHtml(course.status_label || "")}</b> ${course.hours ? `· ${course.hours} h` : ""} ${course.modality ? `· ${escapeHtml(course.modality)}` : ""}</article>
-    <p>${escapeHtml(course.description || "")}</p>
-    <p>Estudiante UTA ${money(prices.estudiante_uta)} · personal UTA ${money(prices.uta)} · público ${money(prices.publico)}</p>
-    <p>${escapeHtml(course.schedule || "")}</p>
-    <p><a href="${course.url}" target="_blank" rel="noreferrer">Ficha oficial</a></p>
-    <pre>${escapeHtml(course.contents || "")}</pre>`;
-}
-
-function escapeHtml(value) {
-  return String(value ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
-}
-
-document.querySelectorAll(".switch button").forEach((button) => {
-  button.addEventListener("click", () => {
-    state.view = button.dataset.view;
-    document.querySelectorAll(".switch button").forEach((item) => item.classList.toggle("on", item === button));
-    render();
-  });
-});
-
-$("list").addEventListener("click", (event) => {
-  const chat = event.target.closest("[data-id]");
-  const course = event.target.closest("[data-slug]");
-  if (chat) {
-    state.selectedId = Number(chat.dataset.id);
-    load().catch(console.error);
-  }
-  if (course) {
-    state.selectedSlug = course.dataset.slug;
-    render();
-  }
-});
-
-$("composer").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const text = $("draft").value.trim();
-  if (!text || !state.selectedId) return;
-  $("sendBtn").disabled = true;
-  await fetch(`/api/conversations/${state.selectedId}/messages`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text }),
-  });
-  $("draft").value = "";
-  await load();
-});
-
-$("resumeBtn").addEventListener("click", async () => {
-  if (!state.selectedId) return;
-  await fetch(`/api/conversations/${state.selectedId}/mode`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ mode: "ai" }),
-  });
-  await load();
-});
-
-$("sim").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const text = $("simText").value.trim();
-  if (!text) return;
-  const response = await fetch("/api/simulate", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ telegram_chat_id: simId, name: $("simName").value.trim() || "Prospecto de prueba", text }),
-  });
-  const conversation = await response.json();
-  state.selectedId = conversation.id;
-  state.view = "chats";
-  document.querySelectorAll(".switch button").forEach((item) => item.classList.toggle("on", item.dataset.view === "chats"));
-  $("simText").value = "";
-  await load();
-});
-
-$("refreshCatalog").addEventListener("click", async () => {
-  $("refreshCatalog").disabled = true;
-  await fetch("/api/catalog/refresh", { method: "POST" });
-  await load();
-});
-
-const source = new EventSource("/api/events");
-source.onopen = () => { $("live").textContent = "en vivo"; $("live").classList.remove("off"); };
-source.onerror = () => { $("live").textContent = "reconectando"; $("live").classList.add("off"); };
-source.onmessage = schedule;
-
-load().catch(console.error);
+const post=(path,body={})=>api(path,{method:'POST',body:JSON.stringify(body)});
+function switchView(view){currentView=view;document.querySelectorAll('.view').forEach(v=>v.hidden=v.id!==view+'-view');document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===view));const names={inbox:['Conversaciones','Conecta con cada prospecto. Acompaña su próximo paso.'],catalog:['Catálogo de cursos','El conocimiento que alimenta cada conversación.'],settings:['Conexiones','Todo listo para conectar tu centro con sus próximos estudiantes.']};$('page-title').textContent=names[view][0];$('page-crumb').textContent=names[view][0];$('page-subtitle').textContent=names[view][1];if(view==='catalog')loadCatalog();if(view==='settings')renderSettings()}
+document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>switchView(b.dataset.view));
+document.querySelectorAll('[data-filter]').forEach(b=>b.onclick=()=>{filter=b.dataset.filter;document.querySelectorAll('[data-filter]').forEach(x=>x.classList.toggle('active',x===b));renderList()});
+$('search').oninput=renderList;
+function renderList(){const query=$('search').value.toLowerCase();const chats=state.chats.filter(c=>(filter==='all'||filter==='human'&&c.mode==='human'||filter==='hot'&&c.status==='lead caliente')&&(`${c.name} ${c.last_message||''}`).toLowerCase().includes(query));$('list-count').textContent=chats.length;$('nav-count').textContent=state.chats.length;$('chat-list').innerHTML=chats.map(c=>`<button class="chat-card ${c.id===selected?'selected':''}" data-chat="${esc(c.id)}"><span class="avatar">${esc(c.name.slice(0,2).toUpperCase())}</span><div class="chat-preview"><div class="chat-preview-top"><strong>${esc(c.name)}</strong><time>${time(c.updated_at)}</time></div><p>${esc(c.last_message||'Lista para comenzar')}</p><div class="chat-card-meta">${badge(c.status)}<small>${c.channel==='demo'?'Prueba · ':''}${c.mode==='ai'?'✦ IA activa':'♧ Asesor'}</small></div></div></button>`).join('')||'<div class="no-chats">Aún no hay conversaciones aquí.<br>Crea una prueba o escribe a tu bot.</div>';$('chat-list').querySelectorAll('[data-chat]').forEach(b=>b.onclick=()=>selectChat(b.dataset.chat))}
+async function selectChat(cid){selected=cid;asUser=true;renderList();await loadDetail()}
+async function loadDetail(){if(!selected)return;const cid=selected;const d=await api('/api/chats/'+encodeURIComponent(cid));if(cid!==selected)return;detail=d;renderThread()}
+function linkText(text){return esc(text).replace(/https?:\/\/[^\s<]+/g,raw=>{const url=raw.replace(/[).,]+$/,'');return `<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`})}
+function renderThread(){const c=detail.chat;$('thread-empty').hidden=true;$('thread-content').hidden=false;$('insights-empty').hidden=true;$('insights-content').hidden=false;$('chat-name').textContent=c.name;$('chat-avatar').textContent=c.name.slice(0,2).toUpperCase();$('chat-channel').textContent=c.channel==='demo'?'Conversación de prueba · No envía a Telegram':'Telegram · Conversación privada';$('handover').textContent=c.mode==='ai'?'♧ Tomar control':'✦ Reanudar IA';$('mode-banner').classList.toggle('human',c.mode==='human');$('mode-banner').textContent=c.mode==='ai'?'✦ Asistente activo · Puedes intervenir cuando lo necesites':'♧ Control humano · La IA está pausada';const pane=$('messages');const nearBottom=pane.scrollHeight-pane.scrollTop-pane.clientHeight<100;const prev=pane.dataset.last;const last=String(detail.messages.at(-1)?.id||'')+detail.messages.map(m=>m.delivery).join(',');if(prev!==last||pane.dataset.chat!==c.id){pane.innerHTML=detail.messages.map(m=>m.role==='system'?`<div class="message system">${esc(m.content)}</div>`:`<div class="message ${esc(m.role)}"><div class="message-meta">${m.role==='user'?esc(c.name):m.role==='operator'?'Asesor CTT':'✦ Asistente CTT'} · ${time(m.created_at)}</div><div class="bubble">${linkText(m.content)}</div>${m.role!=='user'?`<div class="delivery ${esc(m.delivery)}">${m.delivery==='failed'?'No entregado · Reenvía manualmente':m.delivery==='pending'?'Enviando…':m.delivery==='demo'?'Prueba local':m.delivery==='recorded'?'Registrado':'✓ Entregado'}</div>`:''}</div>`).join('')||'<div class="no-chats">Escribe como prospecto para iniciar la prueba.</div>';if(nearBottom||pane.dataset.chat!==c.id)pane.scrollTop=pane.scrollHeight;pane.dataset.last=last;pane.dataset.chat=c.id}else{detail.messages.filter(m=>m.delivery==='failed').forEach(()=>{} )}
+$('demo-controls').hidden=c.channel!=='demo';updateComposer();$('sentiment').outerHTML=`<span id="sentiment" class="badge ${c.status==='lead caliente'?'hot':esc(c.status)}">${esc(labels[c.status])}</span>`;const n={'interesado':2,'dudoso':2,'frustrado':1,'lead caliente':4}[c.status];document.querySelectorAll('.thermometer i').forEach((el,i)=>el.classList.toggle('lit',i<n));$('sentiment-help').textContent={'interesado':'Explorando opciones de formación.','dudoso':'Resuelve su inquietud antes de avanzar.','frustrado':'Una respuesta humana hace la diferencia.','lead caliente':'Hay intención de dar el siguiente paso.'}[c.status];$('summary').textContent=(c.flagged?'⚑ Solicitud sensible detectada. ':'')+(c.summary||'El resumen se actualizará después de la próxima respuesta del asistente.');let profile={};try{profile=JSON.parse(c.profile)}catch{}$('profile').innerHTML=Object.entries(profile).map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')||'<dd>Aún no hay información suficiente.</dd>';$('next-step').textContent=c.mode==='human'?'Revisa el historial y responde personalmente. Reactiva la IA solo cuando hayas terminado.':c.status==='lead caliente'?'Confirma perfil, vigencia y requisitos; comparte la inscripción oficial.':'Descubre qué quiere aprender y conecta su objetivo con un curso.';if(c.handover_reason)$('next-step').textContent+=' '+c.handover_reason;if(c.courses?.length)$('next-step').textContent+=' Cursos considerados: '+c.courses.map(x=>x.title).join(' · ')}
+function updateComposer(){const demo=detail?.chat.channel==='demo';$('as-user').classList.toggle('active',asUser);$('as-operator').classList.toggle('active',!asUser);$('message-input').placeholder=demo&&asUser?'Escribe como prospecto, por ejemplo: quiero aprender Python…':'Escribe como asesor. Al enviar, la IA se pausará automáticamente.';$('composer-note').textContent=demo&&asUser?'Mensaje de prueba · No se envía a Telegram':'Responder como asesor pausa automáticamente la IA'}
+$('as-user').onclick=()=>{asUser=true;updateComposer()};$('as-operator').onclick=()=>{asUser=false;updateComposer()};
+$('handover').onclick=async()=>{try{await post('/api/chats/'+selected+'/mode',{mode:detail.chat.mode==='ai'?'human':'ai'});await refresh()}catch(e){toast(e.message)}};
+$('message-form').onsubmit=async e=>{e.preventDefault();const input=$('message-input');const text=input.value.trim();if(!text||!selected)return;const button=$('send-button');button.disabled=true;try{const route=detail.chat.channel==='demo'&&asUser?'/api/demo/'+selected:'/api/chats/'+selected+'/messages';await post(route,{text});input.value='';await refresh();$('messages').scrollTop=$('messages').scrollHeight}catch(e){toast(e.message)}finally{button.disabled=false;input.focus()}};
+$('message-input').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();$('message-form').requestSubmit()}};
+async function newDemo(){if(newDemo.busy)return;newDemo.busy=true;$('new-demo').disabled=true;try{const c=await post('/api/demo');switchView('inbox');await refresh();await selectChat(c.id);$('message-input').focus()}catch(e){toast(e.message)}finally{newDemo.busy=false;$('new-demo').disabled=false}}
+['new-demo','empty-demo','guide-demo'].forEach(id=>$(id).onclick=newDemo);$('view-catalog').onclick=()=>switchView('catalog');
+function renderHealth(){let notices=[];if(health.telegram!=='connected')notices.push(health.telegram==='unconfigured'?'Telegram sin token':health.telegram==='error'?'Telegram con error de conexión':health.telegram==='disabled'?'Polling desactivado en esta instancia':'Telegram configurado, pendiente de conexión');if(health.llm==='unconfigured')notices.push('LLM sin clave: las pruebas usan respuestas de respaldo');if(health.llm==='error')notices.push('El proveedor LLM reportó un error; revisa clave, URL y modelo');if(health.catalog_warning||state.catalog_warning)notices.push(health.catalog_warning||state.catalog_warning);$('setup-banner').hidden=!notices.length;$('setup-banner').textContent=notices.join(' · ');if(notices.length){const b=document.createElement('button');b.textContent=' Ver conexiones ↗';b.onclick=()=>switchView('settings');$('setup-banner').append(b)}if(currentView==='settings')renderSettings()}
+async function refresh(){if(loading){refreshAgain=true;return}loading=true;try{const [s,h]=await Promise.all([api('/api/state'),api('/api/health')]);state=s;health=h;for(const k of ['total','ai','human','hot'])$('stat-'+k).textContent=s.metrics[k];renderList();renderHealth();await loadDetail()}catch(e){toast(e.message)}finally{loading=false;if(refreshAgain){refreshAgain=false;refresh()}}}
+async function loadCatalog(){try{const courses=await api('/api/courses');$('catalog-sync').textContent=`${courses.length} cursos con fuente verificada · Última extracción: ${state.catalog_updated?new Date(state.catalog_updated).toLocaleString('es-EC',{timeZone:'America/Guayaquil'}):'pendiente'}`;$('course-grid').innerHTML=courses.map((c,i)=>`<article class="course-card"><div class="course-top"><span>CURSO ${String(i+1).padStart(2,'0')}</span><span>◷ ${esc(c.hours)}</span></div><h3>${esc(c.title)}</h3><p>${esc((c.prices||[]).join(' · ')||'Tarifas en la ficha oficial')}</p><details><summary>Ver temario y detalles extraídos</summary><pre>${esc(c.content)}</pre></details><a href="${esc(c.url)}" target="_blank" rel="noopener noreferrer">Consultar fuente oficial ↗</a></article>`).join('')||'<p>Aún no hay cursos. Sincroniza el catálogo para comenzar.</p>'}catch(e){toast(e.message)}}
+$('refresh-catalog').onclick=async()=>{$('refresh-catalog').disabled=true;try{await post('/api/catalog/refresh');await refresh();await loadCatalog();toast('Catálogo actualizado.')}catch(e){toast(e.message)}finally{$('refresh-catalog').disabled=false}};
+function renderSettings(){const human={unconfigured:'Sin configurar',configured:'Configurado · Por verificar',connected:'Conectado',error:'Error de conexión',disabled:'Desactivado'};$('settings-grid').innerHTML=`<article class="settings-card"><h2>↗ Telegram</h2>${badge(human[health.telegram]||'Pendiente')}<p>${health.bot_username?`<a href="https://t.me/${encodeURIComponent(health.bot_username)}" target="_blank" rel="noopener">Abrir @${esc(health.bot_username)} ↗</a>`:'Agrega el token de BotFather para recibir conversaciones reales.'}</p><p>${esc(health.telegram_error||'Long polling · Sin webhook ni dominio para el bot.')}</p></article><article class="settings-card"><h2>✦ Modelo de lenguaje</h2>${badge(human[health.llm]||'Pendiente')}<p>${esc(health.model||'Compatible con OpenAI')}</p><p>Última respuesta: ${esc(health.last_engine||'Sin consultas')} · Tokens: ${esc(health.last_tokens||'—')}</p></article><article class="settings-card"><h2>◉ Voz y seguridad</h2>${badge(health.audio?'Audio configurado':'Audio opcional')}<p>${health.protected?'Dashboard protegido con contraseña.':'Acceso local. Configura una contraseña antes de publicar.'}</p><p>El audio requiere un proveedor con transcripción compatible.</p></article>`}
+$('date').textContent=new Date().toLocaleDateString('es-EC',{day:'numeric',month:'short',year:'numeric',timeZone:'America/Guayaquil'});
+let streamConnected=false;const events=new EventSource('/api/events');events.onopen=()=>{streamConnected=true;$('connection').innerHTML='<i></i> En vivo'};events.addEventListener('hello',()=>refresh());events.onmessage=()=>{refresh();if(currentView==='catalog')loadCatalog()};events.onerror=()=>{streamConnected=false;$('connection').textContent='Sincronización cada 3 s'};setInterval(()=>{if(!document.hidden){refresh();if(currentView==='catalog')loadCatalog()}},3000);refresh();

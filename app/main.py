@@ -7,15 +7,19 @@ viven en paquetes distintos. Este archivo solo los enchufa.
 import asyncio
 import json
 import logging
+import base64
+import hmac
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from app.config import LLM_API_KEY, LLM_MODEL, SCRAPE_EVERY_HOURS, STATIC_DIR, TELEGRAM_BOT_TOKEN
+from app.config import DASHBOARD_PASSWORD
+from app.persistence.database import get_meta
 from app.catalog.scraper import refresh
 from app.connectors.telegram import poll_forever
 from app.orchestration.conversations import handle_incoming, operator_message, set_mode
@@ -30,6 +34,8 @@ from app.persistence.database import (
 from app.realtime.hub import broadcast, subscribe, unsubscribe
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+for _http_logger in ("httpx", "httpx2", "httpcore", "httpcore2"):
+    logging.getLogger(_http_logger).setLevel(logging.ERROR)
 log = logging.getLogger("ctt")
 
 
@@ -59,21 +65,36 @@ async def lifespan(_app: FastAPI):
     bot_task = asyncio.create_task(poll_forever())
     yield
     for task in (scrape_task, loop_task, bot_task):
+        if task is None:
+            continue
         task.cancel()
 
 
 app = FastAPI(title="Asesor CTT-FISEI", lifespan=lifespan)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+@app.middleware("http")
+async def protect_dashboard(request: Request, call_next):
+    if DASHBOARD_PASSWORD:
+        try:
+            scheme, value = request.headers.get("authorization", "").split(" ", 1)
+            username, password = base64.b64decode(value).decode().split(":", 1)
+            valid = scheme.lower() == "basic" and hmac.compare_digest(username, "admin") and hmac.compare_digest(password, DASHBOARD_PASSWORD)
+        except Exception:
+            valid = False
+        if not valid:
+            return JSONResponse({"detail":"Autenticación requerida"},status_code=401,headers={"WWW-Authenticate":'Basic realm="CTT Connect"'})
+    elif request.client.host not in {"127.0.0.1", "::1", "testclient"}:
+        return JSONResponse({"detail":"Configura DASHBOARD_PASSWORD"},status_code=403)
+    if request.method not in {"GET","HEAD","OPTIONS"}:
+        from urllib.parse import urlparse
+        origin=request.headers.get("origin")
+        if origin and urlparse(origin).netloc != request.headers.get("host"):
+            return JSONResponse({"detail":"Origen no permitido"},status_code=403)
+    return await call_next(request)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
 class SimulateBody(BaseModel):
-    telegram_chat_id: int
+    telegram_chat_id: int = Field(lt=0)
     name: str = "Prospecto de prueba"
     username: str = ""
     text: str = Field(min_length=1, max_length=4000)
@@ -99,6 +120,9 @@ def health():
         "telegram": bool(TELEGRAM_BOT_TOKEN),
         "llm": bool(LLM_API_KEY),
         "model": LLM_MODEL if LLM_API_KEY else "",
+        "telegram_status": get_meta("telegram_status", "configured" if TELEGRAM_BOT_TOKEN else "unconfigured"),
+        "telegram_error": get_meta("telegram_error"),
+        "protected": bool(DASHBOARD_PASSWORD),
     }
 
 

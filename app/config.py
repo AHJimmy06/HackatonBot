@@ -26,3 +26,6 @@ CATALOG_URL = env("CATALOG_URL", "https://ctt-talleresfisei.uta.edu.ec/course.ph
 SCRAPE_EVERY_HOURS = float(env("SCRAPE_EVERY_HOURS", "6") or "6")
 DB_PATH = ROOT / "data" / "ctt.db"
 STATIC_DIR = ROOT / "static"
+# Local dashboard access is independent of the bot's original environment contract.
+PASSWORD_FILE = ROOT / ".dashboard-password"
+DASHBOARD_PASSWORD = PASSWORD_FILE.read_text(encoding="utf-8").strip() if PASSWORD_FILE.exists() else ""

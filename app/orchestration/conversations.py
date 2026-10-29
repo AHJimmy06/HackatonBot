@@ -1,3 +1,10 @@
+import asyncio
+from collections import defaultdict
+
+_epochs = defaultdict(int)
+_chat_locks = defaultdict(asyncio.Lock)
+_send_locks = defaultdict(asyncio.Lock)
+
 import json
 import logging
 
@@ -19,7 +26,7 @@ START_REPLY = (
 )
 
 
-async def handle_incoming(
+async def _handle_incoming(
     *,
     telegram_chat_id: int,
     name: str,
@@ -38,6 +45,7 @@ async def handle_incoming(
     if conversation["mode"] == "human":
         return conversation
 
+    epoch = _epochs[conversation["id"]]
     folded = text.lower().strip()
     if folded in {"/start", "/help"}:
         result = {
@@ -80,26 +88,29 @@ async def handle_incoming(
                 result["intent"] = "objecion"
                 result["summary"] = "La respuesta se corrigió para no ofrecer un precio no autorizado."
 
-    reply = result["reply"]
-    handover = bool(result.get("handover"))
-    profile = result.get("profile") or conversation.get("profile") or {}
-    db.add_message(conversation["id"], "assistant", reply)
-    updated = db.update_conversation(
-        conversation["id"],
-        mode="human" if handover else "ai",
-        mood=result.get("mood") or "interesado",
-        intent=result.get("intent") or "otro",
-        summary=result.get("summary") or conversation.get("summary") or "",
-        profile_json=json.dumps(profile, ensure_ascii=False),
-        handover_reason=(result.get("handover_reason") or result.get("summary") or "") if handover else "",
-        flagged=1 if conversation.get("flagged") or result.get("flag") else 0,
-        courses_json=json.dumps(courses, ensure_ascii=False),
-    )
-    delivered = False
-    if deliver and origin == "telegram":
-        delivered = await send_message(telegram_chat_id, reply)
-    await broadcast({"type": "message", "conversation_id": conversation["id"], "delivered": delivered})
-    return updated
+    async with _send_locks[conversation["id"]]:
+        if _epochs[conversation["id"]] != epoch or db.get_conversation(conversation["id"])["mode"] != "ai":
+            return db.get_conversation(conversation["id"])
+        reply = result["reply"]
+        handover = bool(result.get("handover"))
+        profile = result.get("profile") or conversation.get("profile") or {}
+        db.add_message(conversation["id"], "assistant", reply)
+        updated = db.update_conversation(
+            conversation["id"],
+            mode="human" if handover else "ai",
+            mood=result.get("mood") or "interesado",
+            intent=result.get("intent") or "otro",
+            summary=result.get("summary") or conversation.get("summary") or "",
+            profile_json=json.dumps(profile, ensure_ascii=False),
+            handover_reason=(result.get("handover_reason") or result.get("summary") or "") if handover else "",
+            flagged=1 if conversation.get("flagged") or result.get("flag") else 0,
+            courses_json=json.dumps(courses, ensure_ascii=False),
+        )
+        delivered = False
+        if deliver and origin == "telegram":
+            delivered = await send_message(telegram_chat_id, reply)
+        await broadcast({"type": "message", "conversation_id": conversation["id"], "delivered": delivered})
+        return updated
 
 
 async def operator_message(conversation_id: int, text: str) -> dict:
@@ -109,11 +120,13 @@ async def operator_message(conversation_id: int, text: str) -> dict:
     conversation = db.get_conversation(conversation_id)
     if not conversation:
         raise LookupError("Esa conversación no existe.")
+    _epochs[conversation_id] += 1
     db.update_conversation(conversation_id, mode="human", handover_reason="El operador tomó el chat.")
     message = db.add_message(conversation_id, "operator", text)
     delivered = False
     if conversation.get("origin") == "telegram":
-        delivered = await send_message(conversation["telegram_chat_id"], text)
+        async with _send_locks[conversation_id]:
+            delivered = await send_message(conversation["telegram_chat_id"], text)
     await broadcast({"type": "message", "conversation_id": conversation_id, "delivered": delivered})
     return {"message": message, "delivered": delivered, "conversation": db.get_conversation(conversation_id)}
 
@@ -124,7 +137,13 @@ async def set_mode(conversation_id: int, mode: str) -> dict:
     conversation = db.get_conversation(conversation_id)
     if not conversation:
         raise LookupError("Esa conversación no existe.")
+    _epochs[conversation_id] += 1
     reason = "" if mode == "ai" else (conversation.get("handover_reason") or "El operador tomó el chat.")
     updated = db.update_conversation(conversation_id, mode=mode, handover_reason=reason)
     await broadcast({"type": "mode", "conversation_id": conversation_id, "mode": mode})
     return updated
+
+
+async def handle_incoming(**kwargs):
+    async with _chat_locks[kwargs["telegram_chat_id"]]:
+        return await _handle_incoming(**kwargs)

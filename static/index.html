@@ -1,58 +1,33 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="es">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Panel de mando · CTT-FISEI</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,560&family=Outfit:wght@380;500;640&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/styles.css">
-</head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#171a29"><title>CTT Connect · Centro de conversaciones</title><link rel="stylesheet" href="/static/styles.css"></head>
 <body>
-  <header class="top">
-    <div class="brand">
-      <span class="mark">CTT</span>
-      <div>
-        <strong>Asesor CTT-FISEI</strong>
-        <small>Panel de mando</small>
-      </div>
-    </div>
-    <div class="metrics" id="metrics"></div>
-    <div class="live-box">
-      <span class="live" id="live">en vivo</span>
-      <span id="catalogMeta"></span>
-      <button type="button" id="refreshCatalog">Actualizar pénsum</button>
-    </div>
-  </header>
-  <p class="banner" id="banner" hidden></p>
-  <div class="layout">
-    <aside>
-      <div class="switch">
-        <button type="button" class="on" data-view="chats">Conversaciones</button>
-        <button type="button" data-view="catalog">Pénsum</button>
-      </div>
-      <div id="list"></div>
-      <form id="sim" class="sim">
-        <p>Simular prospecto</p>
-        <input id="simName" value="Ana Pérez" maxlength="80">
-        <textarea id="simText" rows="3" placeholder="Quiero aprender inteligencia artificial y no sé programar"></textarea>
-        <button type="submit">Enviar al asesor</button>
-      </form>
-    </aside>
-    <main>
-      <div id="head" class="head empty">Elige una conversación</div>
-      <div id="thread" class="thread"></div>
-      <form id="composer" class="composer">
-        <textarea id="draft" rows="2" placeholder="Escribe como asesor. Al enviar, la IA se pausa." disabled></textarea>
-        <div class="actions">
-          <button type="submit" id="sendBtn" disabled>Enviar y tomar control</button>
-          <button type="button" id="resumeBtn" disabled>Devolver a la IA</button>
-        </div>
-      </form>
-    </main>
-    <section id="side" class="side"></section>
+<aside class="sidebar">
+  <a class="brand" href="/" aria-label="CTT Connect inicio"><span class="brand-icon">c<span>✦</span></span><span>ctt<span class="brand-light">connect</span><small>FISEI · UNIVERSIDAD TÉCNICA DE AMBATO</small></span></a>
+  <div class="workspace"><span class="workspace-mark">F</span><div>Centro de capacitación<small>Espacio de trabajo</small></div><span>⌄</span></div>
+  <div class="nav-caption">WORKSPACE</div>
+  <nav><button class="nav-item active" data-view="inbox"><span>▣</span> Conversaciones <b id="nav-count">0</b></button><button class="nav-item" data-view="catalog"><span>▤</span> Catálogo de cursos</button><button class="nav-item" data-view="settings"><span>⚙</span> Conexiones</button></nav>
+  <div class="sidebar-guide"><span class="spark">✦</span><strong>IA y personas.<br>Un mismo equipo.</strong><p>Supervisa cada conversación y toma el control cuando más importa.</p><button id="guide-demo">Probar una conversación <span>↗</span></button></div>
+  <div class="side-bottom"><span class="avatar small">A</span><div>Asesor CTT<small>Panel de supervisión</small></div><span class="online-dot"></span></div>
+</aside>
+<main>
+ <header class="topbar"><div><span class="breadcrumb">Workspace</span><span class="slash">/</span><span id="page-crumb">Conversaciones</span></div><div class="top-right"><span id="connection" class="connection"><i></i> Conectando</span><span class="top-divider"></span><span id="date"></span><span class="avatar tiny">A</span></div></header>
+ <section class="page-heading"><div><div class="eyebrow">TU CENTRO DE ATENCIÓN, EN TIEMPO REAL</div><h1 id="page-title">Conversaciones</h1><p id="page-subtitle">Conecta con cada prospecto. Acompaña su próximo paso.</p></div><button class="primary" id="new-demo"><span>＋</span> Nueva prueba</button></section>
+ <div id="setup-banner" class="setup-banner" hidden></div>
+ <section id="inbox-view" class="view">
+  <div class="stats"><article><span class="stat-icon lavender">◉</span><div><span>Conversaciones</span><strong id="stat-total">0</strong></div><small>En este espacio</small></article><article><span class="stat-icon green">✦</span><div><span>Atendidas por IA</span><strong id="stat-ai">0</strong></div><small>Asistente activo</small></article><article><span class="stat-icon orange">♧</span><div><span>Requieren atención</span><strong id="stat-human">0</strong></div><small>Control humano</small></article><article><span class="stat-icon pink">↗</span><div><span>Leads calientes</span><strong id="stat-hot">0</strong></div><small>Intención de inscripción</small></article></div>
+  <div class="inbox-shell">
+   <section class="chat-list-panel"><div class="list-title"><h2>Bandeja de entrada</h2><span class="count" id="list-count">0</span></div><label class="search"><span>⌕</span><input id="search" placeholder="Buscar prospecto o mensaje" aria-label="Buscar conversaciones"></label><div class="filters"><button class="active" data-filter="all">Todas</button><button data-filter="human">Atención humana</button><button data-filter="hot">Calientes</button></div><div id="chat-list" class="chat-list"></div><div class="list-footer"><span class="online-dot"></span> Actualizaciones automáticas</div></section>
+   <section class="thread-panel"><div id="thread-empty" class="empty-state"><div class="empty-art">✦</div><span class="eyebrow">CADA CONVERSACIÓN ES UNA OPORTUNIDAD</span><h2>La próxima conexión empieza aquí.</h2><p>Selecciona un chat de Telegram o crea una prueba<br>para explorar el asistente y el control humano.</p><button class="primary" id="empty-demo">Crear conversación de prueba ↗</button><div class="empty-features"><span>◉ En vivo</span><span>◇ Datos oficiales</span><span>♧ Control humano</span></div></div><div id="thread-content" hidden><div class="thread-header"><span class="avatar" id="chat-avatar">P</span><div class="thread-name"><h2 id="chat-name"></h2><span id="chat-channel"></span></div><button id="handover" class="secondary"></button></div><div id="mode-banner" class="mode-banner"></div><div id="messages" class="messages" role="log" aria-live="polite" aria-label="Mensajes de conversación"></div><div id="demo-controls" class="demo-controls" hidden><span>SIMULADOR</span><button id="as-user" class="active">Soy el prospecto</button><button id="as-operator">Soy el asesor</button></div><form id="message-form" class="composer"><label class="sr-only" for="message-input">Escribe un mensaje</label><textarea id="message-input" rows="2" maxlength="4000" placeholder="Escribe un mensaje…"></textarea><div class="composer-bottom"><span id="composer-note">Enter para enviar · Shift + Enter para nueva línea</span><button class="send" id="send-button" type="submit" aria-label="Enviar mensaje">Enviar ↑</button></div></form></div></section>
+   <aside class="insights"><div class="insights-title"><h2>Contexto del prospecto</h2><span>◌</span></div><div id="insights-empty"><p>Los detalles aparecerán al seleccionar una conversación.</p></div><div id="insights-content" hidden><div class="insight-label">TERMÓMETRO DE INTERACCIÓN</div><span id="sentiment" class="badge"></span><div class="thermometer"><i></i><i></i><i></i><i></i></div><p id="sentiment-help" class="muted"></p><hr><div class="insight-label">RESUMEN PARA EL ASESOR <span>✦</span></div><p id="summary"></p><div class="insight-label profile-label">PERFIL DETECTADO</div><dl id="profile"></dl><hr><div class="insight-label">SIGUIENTE PASO</div><div id="next-step" class="next-step"></div></div><div class="source-note"><span>◇</span><strong>Información con respaldo</strong><p>El asistente consulta el catálogo oficial de CTT-FISEI. Sin descuentos ni promesas inventadas.</p><button id="view-catalog">Explorar catálogo ↗</button></div></aside>
   </div>
-  <script src="/static/app.js"></script>
-</body>
-</html>
+ </section>
+ <section id="catalog-view" class="view" hidden><div class="catalog-toolbar"><div><h2>Conocimiento conectado a la fuente</h2><p id="catalog-sync">Información extraída del sitio oficial de CTT-FISEI.</p></div><button class="secondary" id="refresh-catalog">↻ Sincronizar catálogo</button></div><div class="catalog-disclaimer">Las fechas y cupos deben confirmarse con el centro. “Abierto” en el listado no garantiza que las inscripciones sigan vigentes.</div><div id="course-grid" class="course-grid"></div></section>
+ <section id="settings-view" class="view" hidden><div class="settings-grid" id="settings-grid"></div><div class="config-help"><h2>Un solo lugar para conectar tu bot</h2><p>Configura las variables en <code>.env</code> y reinicia el servidor. Las claves nunca se muestran ni se guardan en el navegador.</p><pre>TELEGRAM_BOT_TOKEN=token_de_BotFather
+LLM_API_KEY=clave_de_tu_proveedor
+LLM_BASE_URL=https://api.openai.com/v1
+LLM_MODEL=modelo_disponible_en_tu_cuenta
+DASHBOARD_PASSWORD=contraseña_para_acceso_remoto</pre><p>La versión base responde a notas de voz solicitando texto; la transcripción requiere integración adicional. Publica una única instancia del servidor con disco persistente.</p></div></section>
+ <footer class="page-footer"><span>CTT Connect <span class="footer-dot">·</span> Tecnología que acompaña.</span><span>HACKATHON 2026 · FISEI</span></footer>
+</main><div id="toast" class="toast" role="status" hidden></div><script src="/static/app.js" defer></script>
+</body></html>

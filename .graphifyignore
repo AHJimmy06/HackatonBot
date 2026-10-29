@@ -1,0 +1,7 @@
+.env
+.venv/
+data/
+tools/
+graphify-out/
+*.log
+.dashboard-password
