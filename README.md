@@ -58,13 +58,13 @@ La publicación usa Cloudflare Quick Tunnel: depende de este equipo encendido y 
 - Simulador solo acepta IDs negativos y no puede suplantar un chat Telegram privado real.
 - Offset Telegram persistido después de procesar, sin eliminar webhook automáticamente.
 - Logging HTTPX de URLs con token desactivado; logs ignorados.
-- El prototipo padre ya no hace polling, evitando competencia por el token.
+- El prototipo padre del puerto 8000 está detenido. La única instancia local del bot es la desplegada en el puerto 8001.
 
 Verificación anterior: página pública devuelve 401 anónimo y 200 autenticado; Telegram conectado sin error; 18 cursos. La validación actual se describe a continuación.
 
 ### Despliegue permanente pendiente
 
-Se necesita elegir proveedor/cuenta (VPS, Render, Railway u otro servidor Python persistente) y autorizar su costo si aplica. Una sola instancia/worker, volumen persistente para `data/ctt.db`, HTTPS y montaje del archivo de contraseña. No se ha contratado hosting ni hecho push remoto. Los cambios permanecen en esta rama local.
+Se necesita elegir proveedor/cuenta (VPS, Render, Railway u otro servidor Python persistente) y autorizar su costo si aplica. Una sola instancia/worker, volumen persistente para `data/ctt.db`, HTTPS y montaje del archivo de contraseña. No se ha contratado hosting permanente. El merge `9f9eadb` ya se publicó en GitHub, rama `feature/baseProject`, sin incluir credenciales ni la base de datos.
 
 
 ## Fusión de refinamientos de feature/baseProject
