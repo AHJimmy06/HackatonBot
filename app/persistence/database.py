@@ -95,8 +95,60 @@ def init_db() -> None:
 
                 CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id, id);
                 CREATE INDEX IF NOT EXISTS idx_conv_updated ON conversations(updated_at);
+
+                -- Motor de recomendación: estado por pasos, decisiones auditables, leads y etiquetas.
+                CREATE TABLE IF NOT EXISTS motor_state (
+                    conversation_id INTEGER PRIMARY KEY,
+                    engine_mode TEXT,
+                    state_json TEXT DEFAULT '{}',
+                    updated_at TEXT
+                );
+                CREATE TABLE IF NOT EXISTS motor_decisions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    conversation_id INTEGER,
+                    engine_mode TEXT,
+                    task TEXT,
+                    provider TEXT,
+                    input TEXT,
+                    output TEXT,
+                    confidence REAL,
+                    latency_ms INTEGER,
+                    ok INTEGER,
+                    created_at TEXT
+                );
+                CREATE TABLE IF NOT EXISTS motor_leads (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    conversation_id INTEGER,
+                    course_slug TEXT,
+                    kind TEXT,
+                    created_at TEXT,
+                    UNIQUE(conversation_id, course_slug, kind)
+                );
+                CREATE TABLE IF NOT EXISTS motor_tags (
+                    slug TEXT PRIMARY KEY,
+                    hash TEXT,
+                    tags_json TEXT,
+                    source TEXT,
+                    updated_at TEXT
+                );
+                CREATE INDEX IF NOT EXISTS idx_motor_decisions_conv ON motor_decisions(conversation_id, id);
+                -- Eventos de negocio y de calidad del chat, base del panel de analítica.
+                CREATE TABLE IF NOT EXISTS motor_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    conversation_id INTEGER,
+                    engine_mode TEXT,
+                    kind TEXT NOT NULL,
+                    course_slug TEXT,
+                    value TEXT,
+                    amount REAL,
+                    created_at TEXT
+                );
+                CREATE INDEX IF NOT EXISTS idx_motor_events_kind ON motor_events(kind, created_at);
                 """
             )
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(courses)")}
+            if "signup_url" not in columns:
+                conn.execute("ALTER TABLE courses ADD COLUMN signup_url TEXT DEFAULT ''")
             conn.commit()
         finally:
             conn.close()
@@ -142,8 +194,8 @@ def replace_courses(courses: list[dict]) -> int:
                     description, objectives, place, instructors,
                     enrollment_start, enrollment_end, course_start, course_end,
                     schedule, modality, capacity, prerequisites, certificate,
-                    prices_json, contents, note, updated_at
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    prices_json, contents, note, updated_at, signup_url
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     course["slug"],
@@ -169,6 +221,7 @@ def replace_courses(courses: list[dict]) -> int:
                     course.get("contents") or "",
                     course.get("note") or "",
                     now(),
+                    course.get("signup_url") or "",
                 ),
             )
         return len(courses)
@@ -369,3 +422,159 @@ def metrics() -> dict:
 def get_meta_unlocked(conn, key: str) -> str:
     row = conn.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
     return row["value"] if row else ""
+
+
+# ---------------------------------------------------------------- motor de recomendación
+
+def motor_get_state(conversation_id: int) -> tuple[str | None, dict]:
+    def run(conn):
+        row = conn.execute("SELECT * FROM motor_state WHERE conversation_id=?", (conversation_id,)).fetchone()
+        return (row["engine_mode"], json.loads(row["state_json"] or "{}")) if row else (None, {})
+
+    return _tx(run)
+
+
+def motor_save_state(conversation_id: int, engine_mode: str, state: dict) -> None:
+    def run(conn):
+        conn.execute(
+            """INSERT INTO motor_state(conversation_id, engine_mode, state_json, updated_at) VALUES(?,?,?,?)
+               ON CONFLICT(conversation_id) DO UPDATE SET engine_mode=excluded.engine_mode,
+               state_json=excluded.state_json, updated_at=excluded.updated_at""",
+            (conversation_id, engine_mode, json.dumps(state, ensure_ascii=False), now()),
+        )
+
+    _tx(run)
+
+
+def motor_set_engine_mode(conversation_id: int, engine_mode: str) -> None:
+    _, state = motor_get_state(conversation_id)
+    motor_save_state(conversation_id, engine_mode, state)
+
+
+def motor_log_decision(conversation_id, engine_mode, task, provider, input_, output, confidence, latency_ms, ok) -> None:
+    def run(conn):
+        conn.execute(
+            """INSERT INTO motor_decisions(conversation_id, engine_mode, task, provider, input, output,
+               confidence, latency_ms, ok, created_at) VALUES(?,?,?,?,?,?,?,?,?,?)""",
+            (conversation_id, engine_mode, task, provider,
+             json.dumps(input_, ensure_ascii=False, default=str)[:4000],
+             json.dumps(output, ensure_ascii=False, default=str)[:4000],
+             confidence, latency_ms, int(bool(ok)), now()),
+        )
+
+    _tx(run)
+
+
+def motor_decisions(conversation_id: int, limit: int = 40) -> list[dict]:
+    def run(conn):
+        rows = conn.execute(
+            "SELECT * FROM motor_decisions WHERE conversation_id=? ORDER BY id DESC LIMIT ?",
+            (conversation_id, limit),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    return _tx(run)
+
+
+def motor_add_lead(conversation_id: int, course_slug: str | None, kind: str) -> None:
+    def run(conn):
+        conn.execute(
+            "INSERT OR IGNORE INTO motor_leads(conversation_id, course_slug, kind, created_at) VALUES(?,?,?,?)",
+            (conversation_id, course_slug, kind, now()),
+        )
+
+    _tx(run)
+
+
+def motor_leads() -> list[dict]:
+    def run(conn):
+        rows = conn.execute(
+            """SELECT l.*, c.user_name, c.username, c.origin, s.engine_mode FROM motor_leads l
+               JOIN conversations c ON c.id=l.conversation_id
+               LEFT JOIN motor_state s ON s.conversation_id=l.conversation_id ORDER BY l.id DESC"""
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    return _tx(run)
+
+
+def motor_tags() -> dict[str, dict]:
+    def run(conn):
+        rows = conn.execute("SELECT * FROM motor_tags").fetchall()
+        return {row["slug"]: {"hash": row["hash"], "tags": json.loads(row["tags_json"] or "null"),
+                              "source": row["source"]} for row in rows}
+
+    return _tx(run)
+
+
+def motor_set_tags(slug: str, digest: str | None, tags: dict | None, source: str | None) -> None:
+    def run(conn):
+        conn.execute(
+            """INSERT INTO motor_tags(slug, hash, tags_json, source, updated_at) VALUES(?,?,?,?,?)
+               ON CONFLICT(slug) DO UPDATE SET hash=COALESCE(excluded.hash, motor_tags.hash),
+               tags_json=excluded.tags_json, source=excluded.source, updated_at=excluded.updated_at""",
+            (slug, digest, json.dumps(tags, ensure_ascii=False) if tags is not None else None, source, now()),
+        )
+
+    _tx(run)
+
+
+def motor_metrics() -> list[dict]:
+    """Comparación de modos del motor a partir de las conversaciones y decisiones registradas."""
+    def run(conn):
+        out = []
+        modes = [r["engine_mode"] for r in conn.execute(
+            "SELECT DISTINCT engine_mode FROM motor_state WHERE engine_mode IS NOT NULL")]
+        for mode in modes:
+            ids = [r["conversation_id"] for r in conn.execute(
+                "SELECT conversation_id FROM motor_state WHERE engine_mode=?", (mode,))]
+            ph = ",".join("?" * len(ids)) or "NULL"
+            handoffs = conn.execute(
+                f"SELECT COUNT(*) n FROM conversations WHERE id IN ({ph}) AND handover_reason<>''", ids).fetchone()["n"]
+            recommended = conn.execute(
+                f"SELECT COUNT(DISTINCT conversation_id) n FROM motor_leads WHERE kind='recomendado' AND conversation_id IN ({ph})",
+                ids).fetchone()["n"]
+            notify = conn.execute(
+                f"SELECT COUNT(*) n FROM motor_leads WHERE kind LIKE 'avisar%' AND conversation_id IN ({ph})", ids).fetchone()["n"]
+            providers = [dict(r) for r in conn.execute(
+                """SELECT provider, COUNT(*) n, AVG(latency_ms) latency_ms, AVG(confidence) confidence,
+                   SUM(ok=0) errors FROM motor_decisions WHERE engine_mode=? GROUP BY provider""", (mode,))]
+            out.append({"engine_mode": mode, "conversations": len(ids), "handoffs": handoffs,
+                        "recommended": recommended, "notify_requests": notify, "providers": providers})
+        return out
+
+    return _tx(run)
+
+
+def motor_event(conversation_id, engine_mode, kind, course_slug=None, value=None, amount=None) -> None:
+    def run(conn):
+        conn.execute(
+            """INSERT INTO motor_events(conversation_id, engine_mode, kind, course_slug, value, amount, created_at)
+               VALUES(?,?,?,?,?,?,?)""",
+            (conversation_id, engine_mode, kind, course_slug, value, amount, now()),
+        )
+
+    _tx(run)
+
+
+def motor_analytics_raw(since: str) -> dict:
+    """Datos crudos para la analítica desde `since` (ISO). La composición vive en app/motor/analytics.py."""
+    def run(conn):
+        q = lambda sql, *args: [dict(r) for r in conn.execute(sql, args).fetchall()]
+        return {
+            "conversations": q(
+                """SELECT c.id, c.mode, c.mood, c.handover_reason, c.origin, c.created_at, c.user_name, c.username,
+                          COALESCE(s.engine_mode, '') engine_mode, COALESCE(s.state_json, '{}') state_json
+                   FROM conversations c LEFT JOIN motor_state s ON s.conversation_id=c.id
+                   WHERE c.created_at >= ?""", since),
+            "events": q("SELECT * FROM motor_events WHERE created_at >= ? ORDER BY id", since),
+            "decisions": q(
+                """SELECT engine_mode, provider, task, latency_ms, confidence, ok FROM motor_decisions
+                   WHERE created_at >= ? AND conversation_id IS NOT NULL""", since),
+            "messages": q(
+                """SELECT m.conversation_id, m.role, m.created_at FROM messages m
+                   JOIN conversations c ON c.id=m.conversation_id WHERE c.created_at >= ? ORDER BY m.id""", since),
+            "courses": q("SELECT slug, title, computed_status, prices_json FROM courses"),
+        }
+
+    return _tx(run)

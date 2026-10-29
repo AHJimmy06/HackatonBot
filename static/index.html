@@ -1,12 +1,12 @@
 <!doctype html>
 <html lang="es">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#171a29"><title>CTT Connect · Centro de conversaciones</title><link rel="stylesheet" href="/static/styles.css"></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#171a29"><title>CTT Connect · Centro de conversaciones</title><link rel="stylesheet" href="/static/styles.css"><link rel="stylesheet" href="/static/analytics.css"></head>
 <body>
 <aside class="sidebar">
   <a class="brand" href="/" aria-label="CTT Connect inicio"><span class="brand-icon">c<span>✦</span></span><span>ctt<span class="brand-light">connect</span><small>FISEI · UNIVERSIDAD TÉCNICA DE AMBATO</small></span></a>
   <div class="workspace"><span class="workspace-mark">F</span><div>Centro de capacitación<small>Espacio de trabajo</small></div><span>⌄</span></div>
   <div class="nav-caption">WORKSPACE</div>
-  <nav><button class="nav-item active" data-view="inbox"><span>▣</span> Conversaciones <b id="nav-count">0</b></button><button class="nav-item" data-view="catalog"><span>▤</span> Catálogo de cursos</button><button class="nav-item" data-view="settings"><span>⚙</span> Conexiones</button></nav>
+  <nav><button class="nav-item active" data-view="inbox"><span>▣</span> Conversaciones <b id="nav-count">0</b></button><button class="nav-item" data-view="analytics"><span>◔</span> Analítica</button><button class="nav-item" data-view="catalog"><span>▤</span> Catálogo de cursos</button><button class="nav-item" data-view="settings"><span>⚙</span> Conexiones</button></nav>
   <div class="sidebar-guide"><span class="spark">✦</span><strong>IA y personas.<br>Un mismo equipo.</strong><p>Supervisa cada conversación y toma el control cuando más importa.</p><button id="guide-demo">Probar una conversación <span>↗</span></button></div>
   <div class="side-bottom"><span class="avatar small">A</span><div>Asesor CTT<small>Panel de supervisión</small></div><span class="online-dot"></span></div>
 </aside>
@@ -22,11 +22,12 @@
    <aside class="insights"><div class="insights-title"><h2>Contexto del prospecto</h2><span>◌</span></div><div id="insights-empty"><p>Los detalles aparecerán al seleccionar una conversación.</p></div><div id="insights-content" hidden><div class="insight-label">TERMÓMETRO DE INTERACCIÓN</div><span id="sentiment" class="badge"></span><div class="thermometer"><i></i><i></i><i></i><i></i></div><p id="sentiment-help" class="muted"></p><hr><div class="insight-label">RESUMEN PARA EL ASESOR <span>✦</span></div><p id="summary"></p><div class="insight-label profile-label">PERFIL DETECTADO</div><dl id="profile"></dl><hr><div class="insight-label">SIGUIENTE PASO</div><div id="next-step" class="next-step"></div></div><div class="source-note"><span>◇</span><strong>Información con respaldo</strong><p>El asistente consulta el catálogo oficial de CTT-FISEI. Sin descuentos ni promesas inventadas.</p><button id="view-catalog">Explorar catálogo ↗</button></div></aside>
   </div>
  </section>
+ <section id="analytics-view" class="view" hidden></section>
  <section id="catalog-view" class="view" hidden><div class="catalog-toolbar"><div><h2>Conocimiento conectado a la fuente</h2><p id="catalog-sync">Información extraída del sitio oficial de CTT-FISEI.</p></div><button class="secondary" id="refresh-catalog">↻ Sincronizar catálogo</button></div><div class="catalog-disclaimer">Las fechas y cupos deben confirmarse con el centro. “Abierto” en el listado no garantiza que las inscripciones sigan vigentes.</div><div id="course-grid" class="course-grid"></div></section>
  <section id="settings-view" class="view" hidden><div class="settings-grid" id="settings-grid"></div><div class="config-help"><h2>Un solo lugar para conectar tu bot</h2><p>Configura las variables en <code>.env</code> y reinicia el servidor. Las claves nunca se muestran ni se guardan en el navegador.</p><pre>TELEGRAM_BOT_TOKEN=token_de_BotFather
 LLM_API_KEY=clave_de_tu_proveedor
 LLM_BASE_URL=url_compatible_de_tu_proveedor
 LLM_MODEL=modelo_disponible_en_tu_cuenta</pre><p>Conserva las variables existentes. El acceso al panel usa el usuario <code>admin</code> y el archivo local <code>.dashboard-password</code>, no una variable adicional.</p><p>La versión base responde a notas de voz solicitando texto; la transcripción requiere integración adicional. Publica una única instancia del servidor con disco persistente.</p></div></section>
  <footer class="page-footer"><span>CTT Connect <span class="footer-dot">·</span> Tecnología que acompaña.</span><span>HACKATHON 2026 · FISEI</span></footer>
-</main><div id="toast" class="toast" role="status" hidden></div><script src="/static/app.js" defer></script>
+</main><div id="toast" class="toast" role="status" hidden></div><script src="/static/app.js" defer></script><script src="/static/analytics.js" defer></script>
 </body></html>

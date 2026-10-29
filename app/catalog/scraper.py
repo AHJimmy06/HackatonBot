@@ -171,7 +171,9 @@ def _field_value(label: str, text: str) -> str:
 
 def _detail(html: str, base: dict) -> dict:
     soup = BeautifulSoup(html, "html.parser")
-    title = clean(soup.h1.get_text(" ", strip=True)) if soup.h1 else base["title"]
+    # el primer <h1> de la página es el logo "CTT FISEI"; el del curso es h1.tituloCurso
+    heading = soup.select_one("h1.tituloCurso")
+    title = clean(heading.get_text(" ", strip=True)) if heading else base["title"]
     description = ""
     box = soup.select_one(".descripcion")
     if box:
@@ -224,6 +226,12 @@ def _detail(html: str, base: dict) -> dict:
     course_dates = pick("fecha del curso", "fechas del curso")
     enrollment_start, enrollment_end = parse_range(enrollment)
     course_start, course_end = parse_range(course_dates)
+    signup_url = ""
+    for link in soup.select("a[href]"):
+        label = fold(link.get_text(" ", strip=True))
+        if ("registr" in label or "inscrib" in label) and link["href"].startswith("https"):
+            signup_url = link["href"]
+            break
     contents = clean_block(tab3.get_text("\n", strip=True)) if tab3 else ""
     contents = re.sub(r"(?i)^contenidos\s*", "", contents).strip()
     course = {
@@ -245,6 +253,7 @@ def _detail(html: str, base: dict) -> dict:
         "prices": _prices(price_lines),
         "contents": contents[:4000],
         "note": note[:400],
+        "signup_url": signup_url,
         "hours": _hours(pick("horas de capacitacion"), base.get("title") or "") or base.get("hours"),
     }
     course["computed_status"] = compute_status(
